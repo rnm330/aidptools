@@ -178,7 +178,8 @@
         document.body.click();
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       }
-    },
+    }
+  };
 
   // ================== QuickSelect Module ==================
   const QUICK_SELECT_KEY = "tc_quick_select";
