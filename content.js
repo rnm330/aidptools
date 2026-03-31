@@ -450,8 +450,11 @@
             <button id="settingsBtn" class="tc-ghost">设置</button>
           </div>
           <div id="moyuTimer" class="tc-moyu-timer" style="display: none;">
-            <span class="tc-moyu-icon">🐟</span>
-            <span id="moyuCountdown">120</span>s 后刷新
+            <div class="tc-moyu-header">
+              <span class="tc-moyu-icon">🐟</span>
+              <span id="moyuCountdown">120</span>s 后刷新
+            </div>
+            <div class="tc-moyu-tip">已开启摸鱼，请不要关闭窗口，如果摸鱼中想做题请打开其他窗口做题</div>
           </div>
         </div>
       </div>
@@ -525,7 +528,6 @@
         timer.style.display = "none";
         btn.textContent = "摸鱼";
         btn.classList.remove("tc-moyu-active");
-        showToast("已关闭摸鱼模式", "ok");
       } else {
         // 开启自动刷新
         moyuCountdownValue = 120;
@@ -533,7 +535,6 @@
         btn.textContent = "停止";
         btn.classList.add("tc-moyu-active");
         document.getElementById("moyuCountdown").textContent = moyuCountdownValue;
-        showToast("摸鱼模式已开启，120秒后自动刷新", "ok");
 
         moyuInterval = setInterval(() => {
           moyuCountdownValue--;
