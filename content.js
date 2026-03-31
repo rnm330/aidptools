@@ -180,18 +180,6 @@
       }
     },
 
-    async waitForMenuClose(timeout = 500) {
-      const startTime = Date.now();
-      while (Date.now() - startTime < timeout) {
-        if (document.querySelectorAll('.arco-cascader-list').length === 0) {
-          return true;
-        }
-        await this.delay(50);
-      }
-      return false;
-    }
-  };
-
   // ================== QuickSelect Module ==================
   const QUICK_SELECT_KEY = "tc_quick_select";
   
@@ -452,7 +440,7 @@
           <div id="moyuTimer" class="tc-moyu-timer" style="display: none;">
             <div class="tc-moyu-header">
               <span class="tc-moyu-icon">🐟</span>
-              <span id="moyuCountdown">120</span>s 后刷新
+              <span id="moyuCountdown">180</span>s 后刷新
             </div>
             <div class="tc-moyu-tip">已开启摸鱼，请不要关闭窗口，如果摸鱼中想做题请打开其他窗口做题</div>
           </div>
@@ -513,39 +501,56 @@
       }
     };
 
-    // 摸鱼按钮逻辑
+    // 摸鱼按钮逻辑（sessionStorage 保存状态，刷新保留，新窗口独立）
+    const MOYU_KEY = 'tc_moyu_active';
     let moyuInterval = null;
-    let moyuCountdownValue = 120;
+    let moyuCountdownValue = 180;
 
-    document.getElementById("moyuBtn").onclick = () => {
+    function startMoyu() {
       const timer = document.getElementById("moyuTimer");
       const btn = document.getElementById("moyuBtn");
 
-      if (moyuInterval) {
-        // 关闭自动刷新
-        clearInterval(moyuInterval);
-        moyuInterval = null;
-        timer.style.display = "none";
-        btn.textContent = "摸鱼";
-        btn.classList.remove("tc-moyu-active");
-      } else {
-        // 开启自动刷新
-        moyuCountdownValue = 120;
-        timer.style.display = "flex";
-        btn.textContent = "停止";
-        btn.classList.add("tc-moyu-active");
+      moyuCountdownValue = 180;
+      timer.style.display = "flex";
+      btn.textContent = "停止";
+      btn.classList.add("tc-moyu-active");
+      document.getElementById("moyuCountdown").textContent = moyuCountdownValue;
+      sessionStorage.setItem(MOYU_KEY, 'true');
+
+      moyuInterval = setInterval(() => {
+        moyuCountdownValue--;
         document.getElementById("moyuCountdown").textContent = moyuCountdownValue;
 
-        moyuInterval = setInterval(() => {
-          moyuCountdownValue--;
-          document.getElementById("moyuCountdown").textContent = moyuCountdownValue;
+        if (moyuCountdownValue <= 0) {
+          location.reload();
+        }
+      }, 1000);
+    }
 
-          if (moyuCountdownValue <= 0) {
-            location.reload();
-          }
-        }, 1000);
+    function stopMoyu() {
+      const timer = document.getElementById("moyuTimer");
+      const btn = document.getElementById("moyuBtn");
+
+      clearInterval(moyuInterval);
+      moyuInterval = null;
+      timer.style.display = "none";
+      btn.textContent = "摸鱼";
+      btn.classList.remove("tc-moyu-active");
+      sessionStorage.removeItem(MOYU_KEY);
+    }
+
+    document.getElementById("moyuBtn").onclick = () => {
+      if (moyuInterval) {
+        stopMoyu();
+      } else {
+        startMoyu();
       }
     };
+
+    // 页面加载时检查是否需要恢复摸鱼状态
+    if (sessionStorage.getItem(MOYU_KEY) === 'true') {
+      startMoyu();
+    }
 
     updateUI();
     renderQuickFillSection();
@@ -701,9 +706,9 @@
       const savedPos = savedPositions[title];
       const left = savedPos?.left || offsetX;
       const top = savedPos?.top || offsetY;
-      const width = savedPos?.width || '';
+      const width = savedPos?.width || 380;
 
-      win.style.cssText = `--block-bg: ${color.bg}; --block-border: ${color.border}; --block-hover: ${color.hover}; left: ${left}px; top: ${top}px; ${width ? 'width: ' + width + 'px' : ''}`;
+      win.style.cssText = `--block-bg: ${color.bg}; --block-border: ${color.border}; --block-hover: ${color.hover}; left: ${left}px; top: ${top}px; width: ${width}px; resize: both;`;
       win.dataset.title = title;
 
       // 按 category 分组

@@ -115,12 +115,13 @@
   position: fixed;
   min-width: 200px;
   background: rgba(12, 20, 33, 0.97);
+  border: 1px solid var(--block-border, #60a5fa);
   border-radius: 10px;
   z-index: 999999;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
-  resize: both;
   overflow: auto;
 }
+
 .tc-float-header {
   padding: 4px 10px;
   cursor: move;
@@ -447,8 +448,11 @@
   width: 145px;
 }
 
-/* ========== 通用按钮 ========== */
-button {
+/* ========== 通用按钮（仅限插件内） ========== */
+#tc-bar button,
+.tc-modal button,
+.tc-quick-menu button,
+.tc-moyu-timer button {
   background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
   border: 1px solid rgba(96, 165, 250, 0.3);
   color: white;
@@ -462,25 +466,29 @@ button {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
-button:hover {
+#tc-bar button:hover,
+.tc-modal button:hover,
+.tc-quick-menu button:hover {
   background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%);
   border-color: rgba(96, 165, 250, 0.45);
   box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
-button:active {
+#tc-bar button:active,
+.tc-modal button:active,
+.tc-quick-menu button:active {
   background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
-.tc-ghost {
+#tc-bar .tc-ghost {
   background: linear-gradient(180deg, rgba(51, 65, 85, 0.6) 0%, rgba(30, 41, 59, 0.6) 100%);
   border: 1px solid rgba(71, 85, 105, 0.4);
   color: #94a3b8;
   text-shadow: none;
 }
 
-.tc-ghost:hover {
+#tc-bar .tc-ghost:hover {
   background: linear-gradient(180deg, rgba(71, 85, 105, 0.7) 0%, rgba(51, 65, 85, 0.7) 100%);
   border-color: rgba(100, 116, 139, 0.5);
   color: #cbd5e1;
@@ -508,11 +516,6 @@ button:active {
   color: white;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
   border: 1px solid rgba(148, 163, 184, 0.1);
-}
-
-.tc-modal-wide {
-  width: 700px;
-  max-height: 80vh;
 }
 
 .tc-modal-header {
@@ -544,82 +547,4 @@ button:active {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 10px;
-}
-
-/* ========== 快捷面板 ========== */
-#tc-quick-panel {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: none;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000000;
-}
-
-.tc-quick-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.tc-close-btn {
-  background: transparent;
-  border: none;
-  color: #64748b;
-  font-size: 22px;
-  padding: 0;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  border-radius: 8px;
-}
-
-.tc-close-btn:hover {
-  color: #e2e8f0;
-  background: rgba(255, 255, 255, 0.06);
-  transform: scale(1.05);
-}
-
-.tc-quick-panel-actions {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.tc-quick-panel-actions button {
-  flex: 1;
-}
-
-.tc-scan-btn {
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-  padding: 8px 16px;
-  font-weight: 500;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
-}
-
-.tc-scan-btn:hover {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
-  transform: translateY(-1px);
-}
-
-.tc-scan-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  box-shadow: none;
-  transform: none;
-}
-
-/* ========== 空状态提示 ========== */
-.tc-empty-hint {
-  color: #64748b;
-  text-align: center;
-  padding: 20px;
-  font-size: 13px;
 }
