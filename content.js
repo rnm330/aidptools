@@ -446,7 +446,12 @@
             <input id="taskIdInput" placeholder="任务ID" />
             <button id="jumpBtn">跳转</button>
             <button id="quickSelectBtn" class="tc-ghost">快捷选择</button>
+            <button id="moyuBtn" class="tc-ghost">摸鱼</button>
             <button id="settingsBtn" class="tc-ghost">设置</button>
+          </div>
+          <div id="moyuTimer" class="tc-moyu-timer" style="display: none;">
+            <span class="tc-moyu-icon">🐟</span>
+            <span id="moyuCountdown">120</span>s 后刷新
           </div>
         </div>
       </div>
@@ -502,6 +507,42 @@
       } else {
         // 有已保存的标签，显示替换/新增菜单
         showQuickSelectMenu(tags, saved);
+      }
+    };
+
+    // 摸鱼按钮逻辑
+    let moyuInterval = null;
+    let moyuCountdownValue = 120;
+
+    document.getElementById("moyuBtn").onclick = () => {
+      const timer = document.getElementById("moyuTimer");
+      const btn = document.getElementById("moyuBtn");
+
+      if (moyuInterval) {
+        // 关闭自动刷新
+        clearInterval(moyuInterval);
+        moyuInterval = null;
+        timer.style.display = "none";
+        btn.textContent = "摸鱼";
+        btn.classList.remove("tc-moyu-active");
+        showToast("已关闭摸鱼模式", "ok");
+      } else {
+        // 开启自动刷新
+        moyuCountdownValue = 120;
+        timer.style.display = "flex";
+        btn.textContent = "停止";
+        btn.classList.add("tc-moyu-active");
+        document.getElementById("moyuCountdown").textContent = moyuCountdownValue;
+        showToast("摸鱼模式已开启，120秒后自动刷新", "ok");
+
+        moyuInterval = setInterval(() => {
+          moyuCountdownValue--;
+          document.getElementById("moyuCountdown").textContent = moyuCountdownValue;
+
+          if (moyuCountdownValue <= 0) {
+            location.reload();
+          }
+        }, 1000);
       }
     };
 
