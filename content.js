@@ -506,12 +506,14 @@
     const MOYU_KEY = 'tc_moyu_active';
     let moyuInterval = null;
     let moyuCountdownValue = 180;
+    let moyuEnabled = false;
 
     function startMoyu() {
       const timer = document.getElementById("moyuTimer");
       const btn = document.getElementById("moyuBtn");
 
       moyuCountdownValue = 180;
+      moyuEnabled = true;
       timer.style.display = "flex";
       btn.textContent = "停止";
       btn.classList.add("tc-moyu-active");
@@ -519,6 +521,11 @@
       sessionStorage.setItem(MOYU_KEY, 'true');
 
       moyuInterval = setInterval(() => {
+        if (!moyuEnabled) {
+          clearInterval(moyuInterval);
+          moyuInterval = null;
+          return;
+        }
         moyuCountdownValue--;
         document.getElementById("moyuCountdown").textContent = moyuCountdownValue;
 
@@ -529,10 +536,13 @@
     }
 
     function stopMoyu() {
+      moyuEnabled = false;
       const timer = document.getElementById("moyuTimer");
       const btn = document.getElementById("moyuBtn");
 
-      clearInterval(moyuInterval);
+      if (moyuInterval) {
+        clearInterval(moyuInterval);
+      }
       moyuInterval = null;
       timer.style.display = "none";
       btn.textContent = "摸鱼";
@@ -549,6 +559,7 @@
     };
 
     // 页面加载时检查是否需要恢复摸鱼状态
+    // 使用 sessionStorage 确保每个标签页独立
     if (sessionStorage.getItem(MOYU_KEY) === 'true') {
       startMoyu();
     }
