@@ -441,7 +441,7 @@
           <div id="moyuTimer" class="tc-moyu-timer" style="display: none;">
             <div class="tc-moyu-header">
               <span class="tc-moyu-icon">🐟</span>
-              <span id="moyuCountdown">180</span>s 后刷新
+              <span id="moyuCountdown">15</span>s 后刷新
             </div>
             <div class="tc-moyu-tip">已开启摸鱼，请不要关闭窗口，如果摸鱼中想做题请打开其他窗口做题</div>
           </div>
@@ -453,12 +453,17 @@
     createSettingsPanel();
 
     const doneInput = document.getElementById("doneInput");
+    // debounce 输入事件，减少频繁写入
+    let inputDebounce;
     doneInput.addEventListener("input", () => {
-      const raw = doneInput.textContent || "";
-      const onlyDigits = raw.replace(/[^\d]/g, "");
-      if (raw !== onlyDigits) doneInput.textContent = onlyDigits;
-      setTodayCount(Number(onlyDigits) || 0);
-      updateUI(true);
+      clearTimeout(inputDebounce);
+      inputDebounce = setTimeout(() => {
+        const raw = doneInput.textContent || "";
+        const onlyDigits = raw.replace(/[^\d]/g, "");
+        if (raw !== onlyDigits) doneInput.textContent = onlyDigits;
+        setTodayCount(Number(onlyDigits) || 0);
+        updateUI(true); // keep editing = true, 不覆盖用户正在编辑的内容
+      }, 150);
     });
 
     doneInput.addEventListener("blur", () => updateUI());
@@ -502,23 +507,127 @@
       }
     };
 
-    // 摸鱼按钮逻辑（sessionStorage 保存状态，刷新保留，新窗口独立）
+    // ================== 摸鱼模式 v2 ==================
     const MOYU_KEY = 'tc_moyu_active';
+    const MOYU_AUTO_KEY = 'tc_moyu_auto'; // 是否开启自动摸鱼
+    const IDLE_TIMEOUT = 30; // 无操作秒数后自动摸鱼
+    const MOYU_REFRESH_INTERVAL = 15; // 摸鱼刷新间隔（秒）
+
     let moyuInterval = null;
-    let moyuCountdownValue = 180;
+    let moyuCountdownValue = MOYU_REFRESH_INTERVAL;
     let moyuEnabled = false;
+    let idleTimer = null;
+    let lastActivityTime = Date.now();
+    let originalMutedState = null; // 记录原始静音状态
+    let moyuActionInterval = null; // 摸鱼动作定时器
+
+    // 监听用户活动（鼠标、键盘、触摸）
+    function recordUserActivity() {
+      lastActivityTime = Date.now();
+      // 如果正在自动摸鱼且用户有了操作，停止摸鱼
+      if (moyuEnabled && sessionStorage.getItem(MOYU_AUTO_KEY) === 'true') {
+        stopMoyu();
+      }
+    }
+    document.addEventListener('mousemove', recordUserActivity, { passive: true });
+    document.addEventListener('keydown', recordUserActivity, { passive: true });
+    document.addEventListener('click', recordUserActivity, { passive: true });
+    document.addEventListener('touchstart', recordUserActivity, { passive: true });
+    document.addEventListener('wheel', recordUserActivity, { passive: true });
+
+    // 空闲检测定时器
+    function startIdleDetection() {
+      clearInterval(idleTimer);
+      idleTimer = setInterval(() => {
+        const autoMoyuEnabled = localStorage.getItem(MOYU_AUTO_KEY) === 'true';
+        if (!autoMoyuEnabled || moyuEnabled) return;
+
+        const idleSeconds = Math.floor((Date.now() - lastActivityTime) / 1000);
+        if (idleSeconds >= IDLE_TIMEOUT) {
+          console.log(`[摸鱼] 已空闲 ${idleSeconds} 秒，自动进入摸鱼模式`);
+          sessionStorage.setItem(MOYU_AUTO_KEY, 'true'); // 标记本次是自动触发的
+          startMoyu();
+        }
+      }, 5000); // 每5秒检查一次
+    }
+
+    // 模拟点击选项卡保持活跃
+    function simulateTabClick() {
+      try {
+        // 尝试找到视频区域或选项卡区域并点击
+        const tabSelectors = [
+          '.arco-tabs-header-title', // Arco Design tabs
+          '[role="tab"]',
+          '.tab-item',
+          '.video-player-container', // 视频播放器容器
+          'video'                    // video 元素本身
+        ];
+        for (const sel of tabSelectors) {
+          const el = document.querySelector(sel);
+          if (el) {
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            return;
+          }
+        }
+        // 兜底：点击页面主体区域
+        const mainArea = document.querySelector('.main-content, .content-area, #app main');
+        if (mainArea) {
+          mainArea.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    // 静音视频并循环播放
+    function setupVideoMutedLoop() {
+      try {
+        const videos = document.querySelectorAll('video');
+        videos.forEach(video => {
+          if (!originalMutedState) originalMutedState = video.muted;
+          video.muted = true;
+          video.loop = true;
+          if (video.paused && video.readyState >= 2) {
+            video.play().catch(() => {});
+          }
+        });
+      } catch (e) { /* ignore */ }
+    }
+
+    // 恢复视频原始状态
+    function restoreVideoState() {
+      try {
+        const videos = document.querySelectorAll('video');
+        videos.forEach(video => {
+          if (originalMutedState !== null && !originalMutedState) {
+            video.muted = false;
+          }
+          // 停止自动播放但保留用户控制
+        });
+        originalMutedState = null;
+      } catch (e) { /* ignore */ }
+    }
 
     function startMoyu() {
       const timer = document.getElementById("moyuTimer");
       const btn = document.getElementById("moyuBtn");
 
-      moyuCountdownValue = 180;
+      moyuCountdownValue = MOYU_REFRESH_INTERVAL;
       moyuEnabled = true;
       timer.style.display = "flex";
       btn.textContent = "停止";
       btn.classList.add("tc-moyu-active");
       document.getElementById("moyuCountdown").textContent = moyuCountdownValue;
       sessionStorage.setItem(MOYU_KEY, 'true');
+
+      // 设置视频静音循环
+      setupVideoMutedLoop();
+
+      // 摸鱼动作：每5秒模拟一次点击，保持页面活跃
+      clearInterval(moyuActionInterval);
+      moyuActionInterval = setInterval(() => {
+        if (!moyuEnabled) return;
+        simulateTabClick();
+        setupVideoMutedLoop(); // 确保持续静音
+      }, 5000);
 
       moyuInterval = setInterval(() => {
         if (!moyuEnabled) {
@@ -544,25 +653,36 @@
         clearInterval(moyuInterval);
       }
       moyuInterval = null;
+
+      clearInterval(moyuActionInterval);
+      moyuActionInterval = null;
+
       timer.style.display = "none";
       btn.textContent = "摸鱼";
       btn.classList.remove("tc-moyu-active");
       sessionStorage.removeItem(MOYU_KEY);
+      sessionStorage.removeItem(MOYU_AUTO_KEY);
+
+      // 恢复视频状态
+      restoreVideoState();
     }
 
     document.getElementById("moyuBtn").onclick = () => {
       if (moyuInterval) {
         stopMoyu();
       } else {
+        lastActivityTime = Date.now(); // 手动启动时刷新活动时间
         startMoyu();
       }
     };
 
     // 页面加载时检查是否需要恢复摸鱼状态
-    // 使用 sessionStorage 确保每个标签页独立
     if (sessionStorage.getItem(MOYU_KEY) === 'true') {
       startMoyu();
     }
+
+    // 启动空闲检测
+    startIdleDetection();
 
     updateUI();
     renderQuickFillSection();
@@ -647,6 +767,22 @@
     localStorage.setItem(WINDOW_POS_KEY, JSON.stringify(positions));
   }
 
+  // 将位置约束在可视区域内
+  function clampPosition(left, top, winWidth, winHeight) {
+    const vw = window.innerWidth || document.documentElement.clientWidth;
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    return {
+      left: Math.max(10, Math.min(left, vw - winWidth - 20)),
+      top: Math.max(10, Math.min(top, vh - winHeight - 80)) // 底部留出工具栏空间
+    };
+  }
+
+  // 获取元素相对于视口左上角的精确坐标
+  function getViewportPosition(el) {
+    const rect = el.getBoundingClientRect();
+    return { left: rect.left, top: rect.top };
+  }
+
   // 更新最小化图标
   function updateMinimizedIcons() {
     // 移除旧图标
@@ -714,14 +850,26 @@
       const win = document.createElement('div');
       win.className = 'tc-float-window';
 
-      // 使用保存的位置或默认位置
+      // 使用保存的位置或默认位置，并约束在可视区域内
       const savedPos = savedPositions[title];
-      const left = savedPos?.left || offsetX;
-      const top = savedPos?.top || offsetY;
+      let left = savedPos?.left || offsetX;
+      let top = savedPos?.top || offsetY;
       const width = savedPos?.width || 380;
 
       win.style.cssText = `--block-bg: ${color.bg}; --block-border: ${color.border}; --block-hover: ${color.hover}; left: ${left}px; top: ${top}px; width: ${width}px; resize: both;`;
       win.dataset.title = title;
+
+      // 添加到 DOM 后再约束位置
+      document.body.appendChild(win);
+      const clamped = clampPosition(left, top, win.offsetWidth || 380, win.offsetHeight || 300);
+      if (clamped.left !== left || clamped.top !== top) {
+        win.style.left = clamped.left + 'px';
+        win.style.top = clamped.top + 'px';
+        // 更新保存的位置
+        const positions = loadWindowPositions();
+        positions[title] = { left: clamped.left, top: clamped.top, width };
+        saveWindowPositions(positions);
+      }
 
       // 按 category 分组
       const grouped = {};
@@ -763,8 +911,6 @@
       innerHTML += '</div>';
       win.innerHTML = innerHTML;
 
-      document.body.appendChild(win);
-
       // 拖拽
       const header = win.querySelector('.tc-float-header');
       let isDragging = false;
@@ -791,26 +937,32 @@
       document.addEventListener('mouseup', () => {
         if (isDragging) {
           isDragging = false;
-          // 保存位置
+          // 保存位置（使用 getBoundingClientRect 获取精确视口坐标）
+          const vpPos = getViewportPosition(win);
           const positions = loadWindowPositions();
           positions[title] = {
-            left: win.offsetLeft,
-            top: win.offsetTop,
+            left: vpPos.left,
+            top: vpPos.top,
             width: win.offsetWidth
           };
           saveWindowPositions(positions);
         }
       });
 
-      // 调整大小时保存
+      // 调整大小时保存（用 debounce 防止频繁写入）
+      let resizeTimeout;
       const resizeObserver = new ResizeObserver(() => {
-        const positions = loadWindowPositions();
-        positions[title] = {
-          left: win.offsetLeft,
-          top: win.offsetTop,
-          width: win.offsetWidth
-        };
-        saveWindowPositions(positions);
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+          const vpPos = getViewportPosition(win);
+          const positions = loadWindowPositions();
+          positions[title] = {
+            left: vpPos.left,
+            top: vpPos.top,
+            width: win.offsetWidth
+          };
+          saveWindowPositions(positions);
+        }, 300);
       });
       resizeObserver.observe(win);
 
@@ -880,6 +1032,12 @@
             <span>-</span>
             <input id="t2e" type="time" />
           </div>
+
+          <label class="tc-toggle-row">
+            <span>自动摸鱼（空闲30秒后）</span>
+            <input type="checkbox" id="autoMoyuToggle" class="tc-toggle-input" />
+            <label for="autoMoyuToggle" class="tc-toggle-switch"></label>
+          </label>
         </div>
 
         <div class="tc-actions">
@@ -897,6 +1055,10 @@
         { start: document.getElementById("t1s").value, end: document.getElementById("t1e").value },
         { start: document.getElementById("t2s").value, end: document.getElementById("t2e").value }
       ]);
+
+      // 保存自动摸鱼设置
+      const autoMoyu = document.getElementById('autoMoyuToggle').checked;
+      localStorage.setItem(MOYU_AUTO_KEY, String(autoMoyu));
 
       settings = {
         target: target > 0 ? Math.floor(target) : DEFAULT_TARGET,
@@ -926,6 +1088,12 @@
     document.getElementById("t1e").value = settings.schedule[0]?.end || DEFAULT_SCHEDULE[0].end;
     document.getElementById("t2s").value = settings.schedule[1]?.start || "";
     document.getElementById("t2e").value = settings.schedule[1]?.end || "";
+
+    // 自动摸鱼开关
+    const autoMoyuToggle = document.getElementById('autoMoyuToggle');
+    if (autoMoyuToggle) {
+      autoMoyuToggle.checked = localStorage.getItem(MOYU_AUTO_KEY) === 'true';
+    }
   }
 
   // 气泡提示
@@ -976,21 +1144,24 @@
   function detectSubmit() {
     document.addEventListener("click", (e) => {
       let el = e.target;
-      for (let i = 0; i < 5 && el; i++) {
+      // 向上最多查找6层
+      for (let i = 0; i < 6 && el; i++) {
         const text = (el.innerText || '').trim();
         if (text === '提交') {
           setTodayCount(getTodayCount() + 1);
           updateUI();
           return;
         }
-        if (text === '上一题') {
-          // 向上找到实际的按钮容器（含 btn-hover class），再检查 disabled
-          let container = el;
-          while (container && container !== document.body) {
-            if ((container.className + '').includes('btn-hover')) break;
-            container = container.parentElement;
-          }
-          if (container && !(container.className + '').includes('disabled')) {
+        if (text === '上一题' || text === '上 一 题' || text === '上一题\n') {
+          // 检查是否被禁用
+          const isDisabled =
+            el.disabled ||
+            el.getAttribute('aria-disabled') === 'true' ||
+            (el.className + '').includes('disabled') ||
+            (el.closest('[class*="btn"]')?.className || '').includes('disabled') ||
+            getComputedStyle(el).pointerEvents === 'none';
+          
+          if (!isDisabled) {
             setTodayCount(Math.max(0, getTodayCount() - 1));
             updateUI();
           }
