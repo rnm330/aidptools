@@ -318,7 +318,7 @@
             <button id="settingsBtn" class="tc-ghost">设置</button>
           </div>
           <div id="moyuTimer" class="tc-moyu-timer" style="display:none;">
-            <div class="tc-moyu-header"><span class="tc-moyu-icon">🐟</span><span id="moyuCountdown">60</span>s 后刷新（操作模拟中）</div>
+            <div class="tc-moyu-header"><span class="tc-moyu-icon">🐟</span><span id="moyuCountdown">120</span>s 后刷新（操作模拟中）</div>
             <div class="tc-moyu-tip">已开启摸鱼，请不要关闭窗口，不要提交题目，不要打开左侧侧边栏，不要手动刷新页面，在设置里调整是否开启自动摸鱼</div>
           </div>
         </div>
@@ -364,11 +364,11 @@
     const MOYU_KEY = 'tc_moyu_active';
     const MOYU_RELOAD_KEY = 'tc_moyu_reload'; // 标记是否为摸鱼自身触发的刷新
     const IDLE_TIMEOUT = 30;
-    const MOYU_REFRESH_INTERVAL = 60;
+    const MOYU_REFRESH_INTERVAL = 120;
 
     let moyuInterval = null, moyuCountdownValue = MOYU_REFRESH_INTERVAL, moyuEnabled = false;
     let idleTimer = null, lastActivityTime = Date.now();
-    let originalMutedState = new Map(), originalPlayingState = new Map(), moyuActionInterval = null;
+    let originalMutedState = new Map(), originalPlayingState = new Map(), originalLoopState = new Map(), moyuActionInterval = null;
 
     function recordUserActivity() { lastActivityTime = Date.now(); }
     document.addEventListener('mousemove', recordUserActivity, { passive: true });
@@ -398,7 +398,9 @@
 
     function simulateMoyuClick() {
       try {
-        const comboboxes = document.querySelectorAll('[role="combobox"]');
+        // 只点击题目内容区域的 combobox（排除侧边栏等非题目区域）
+        const mainContent = document.querySelector('.mark-container') || document.querySelector('.task-content') || document.querySelector('main') || document.body;
+        const comboboxes = mainContent.querySelectorAll('[role="combobox"]');
         allComboboxInputs = Array.from(comboboxes).map(cb => cb.querySelector('input, [role="textbox"], .arco-input-wrapper')).filter(Boolean);
         switch (moyuClickStep % 4) {
           case 0: if (allComboboxInputs[0]) allComboboxInputs[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); break;
@@ -413,7 +415,7 @@
     function setupVideoMutedLoop() {
       try {
         document.querySelectorAll('video').forEach(video => {
-          if (!originalMutedState.has(video)) { originalMutedState.set(video, video.muted); originalPlayingState.set(video, !video.paused); }
+          if (!originalMutedState.has(video)) { originalMutedState.set(video, video.muted); originalPlayingState.set(video, !video.paused); originalLoopState.set(video, video.loop); }
           video.muted = true; video.loop = true;
           if (video.paused && video.readyState >= 2) video.play().catch(() => {});
         });
@@ -422,9 +424,10 @@
 
     function restoreVideoState() {
       try {
-        originalMutedState.forEach((wasMuted, video) => { if (!wasMuted) video.muted = false; });
+        originalMutedState.forEach((wasMuted, video) => { video.muted = wasMuted; });
         originalPlayingState.forEach((wasPlaying, video) => { if (!wasPlaying && !video.paused) video.pause(); });
-        originalMutedState.clear(); originalPlayingState.clear();
+        originalLoopState.forEach((wasLoop, video) => { video.loop = wasLoop; });
+        originalMutedState.clear(); originalPlayingState.clear(); originalLoopState.clear();
       } catch (e) {}
     }
 
@@ -436,7 +439,7 @@
       sessionStorage.setItem(MOYU_KEY, 'true');
       setupVideoMutedLoop();
       clearInterval(moyuActionInterval);
-      moyuActionInterval = setInterval(() => { if (!moyuEnabled) return; simulateMoyuClick(); setupVideoMutedLoop(); }, 5000);
+      moyuActionInterval = setInterval(() => { if (!moyuEnabled) return; simulateMoyuClick(); setupVideoMutedLoop(); }, 10000);
       moyuInterval = setInterval(() => {
         if (!moyuEnabled) { clearInterval(moyuInterval); moyuInterval = null; return; }
         moyuCountdownValue--; document.getElementById("moyuCountdown").textContent = moyuCountdownValue;
@@ -452,6 +455,9 @@
       const timer = document.getElementById("moyuTimer"), btn = document.getElementById("moyuBtn");
       if (moyuInterval) { clearInterval(moyuInterval); } moyuInterval = null;
       clearInterval(moyuActionInterval); moyuActionInterval = null;
+      moyuClickStep = 0; allComboboxInputs = [];
+      // 关闭可能残留的下拉菜单
+      try { AutoFiller.closeAllMenus(); } catch(e) {}
       timer.style.display = "none"; btn.textContent = "摸鱼"; btn.classList.remove("tc-moyu-active");
       sessionStorage.removeItem(MOYU_KEY); sessionStorage.removeItem(MOYU_AUTO_KEY);
       restoreVideoState();
