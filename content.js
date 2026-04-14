@@ -225,6 +225,8 @@
   const STORAGE_DATA_KEY = "taskCounterData";
   const TASK_URL_PREFIX = "https://aidp.bytedance.com/operation/task-v2/7583977724970585862/scan/2/";
   const MOYU_AUTO_KEY = 'tc_moyu_auto';
+  const MOYU_AUTO_IDLE_KEY = 'tc_moyu_auto_idle';
+  const MOYU_AUTO_BG_KEY = 'tc_moyu_auto_bg';
 
   function todayKey() {
     const now = new Date();
@@ -378,7 +380,7 @@
     document.addEventListener('wheel', recordUserActivity, { passive: true });
 
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && !moyuEnabled && localStorage.getItem(MOYU_AUTO_KEY) === 'true') {
+      if (document.hidden && !moyuEnabled && localStorage.getItem(MOYU_AUTO_BG_KEY) === 'true') {
         sessionStorage.setItem(MOYU_AUTO_KEY, 'true'); startMoyu();
       }
     });
@@ -386,7 +388,7 @@
     function startIdleDetection() {
       clearInterval(idleTimer);
       idleTimer = setInterval(() => {
-        const autoMoyuEnabled = localStorage.getItem(MOYU_AUTO_KEY) === 'true';
+        const autoMoyuEnabled = localStorage.getItem(MOYU_AUTO_IDLE_KEY) === 'true';
         if (!autoMoyuEnabled || moyuEnabled || document.hidden) return;
         const idleSeconds = Math.floor((Date.now() - lastActivityTime) / 1000);
         if (idleSeconds >= IDLE_TIMEOUT) { sessionStorage.setItem(MOYU_AUTO_KEY, 'true'); startMoyu(); }
@@ -592,7 +594,8 @@
           <label>每日目标</label><input id="setTarget" type="number" min="1" />
           <label>工作时间1</label><div class="tc-time"><input id="t1s" type="time" /><span>-</span><input id="t1e" type="time" /></div>
           <label>工作时间2</label><div class="tc-time"><input id="t2s" type="time" /><span>-</span><input id="t2e" type="time" /></div>
-          <label class="tc-toggle-row"><span>自动摸鱼（空闲30秒后）</span><input type="checkbox" id="autoMoyuToggle" class="tc-toggle-input" /><label for="autoMoyuToggle" class="tc-toggle-switch"></label></label>
+          <label class="tc-toggle-row"><span>空闲30秒自动摸鱼</span><input type="checkbox" id="autoMoyuIdleToggle" class="tc-toggle-input" /><label for="autoMoyuIdleToggle" class="tc-toggle-switch"></label></label>
+          <label class="tc-toggle-row"><span>切换后台自动摸鱼</span><input type="checkbox" id="autoMoyuBgToggle" class="tc-toggle-input" /><label for="autoMoyuBgToggle" class="tc-toggle-switch"></label></label>
         </div>
         <div class="tc-actions"><button id="saveSettings">保存</button><button id="closeSettings" class="tc-ghost">取消</button></div>
       </div>`;
@@ -604,7 +607,8 @@
         { start: document.getElementById("t1s").value, end: document.getElementById("t1e").value },
         { start: document.getElementById("t2s").value, end: document.getElementById("t2e").value }
       ]);
-      localStorage.setItem(MOYU_AUTO_KEY, String(document.getElementById('autoMoyuToggle').checked));
+      localStorage.setItem(MOYU_AUTO_IDLE_KEY, String(document.getElementById('autoMoyuIdleToggle').checked));
+      localStorage.setItem(MOYU_AUTO_BG_KEY, String(document.getElementById('autoMoyuBgToggle').checked));
       settings = { target: target > 0 ? Math.floor(target) : DEFAULT_TARGET, schedule: nextSchedule };
       saveSettings(settings); panel.style.display = "none"; updateUI();
     };
@@ -619,7 +623,8 @@
     document.getElementById("t1e").value = settings.schedule[0]?.end || DEFAULT_SCHEDULE[0].end;
     document.getElementById("t2s").value = settings.schedule[1]?.start || "";
     document.getElementById("t2e").value = settings.schedule[1]?.end || "";
-    const t = document.getElementById('autoMoyuToggle'); if (t) t.checked = localStorage.getItem(MOYU_AUTO_KEY) === 'true';
+    const tIdle = document.getElementById('autoMoyuIdleToggle'); if (tIdle) tIdle.checked = localStorage.getItem(MOYU_AUTO_IDLE_KEY) === 'true';
+    const tBg = document.getElementById('autoMoyuBgToggle'); if (tBg) tBg.checked = localStorage.getItem(MOYU_AUTO_BG_KEY) === 'true';
   }
 
   function showToast(msg, type = 'ok') {
