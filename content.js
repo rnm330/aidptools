@@ -317,6 +317,7 @@
             <button id="jumpBtn">跳转</button>
             <button id="quickSelectBtn" class="tc-ghost">快捷选择</button>
             <button id="moyuBtn" class="tc-ghost">摸鱼</button>
+            <button id="deferredSubmitBtn" class="tc-ghost">押后提交</button>
             <button id="settingsBtn" class="tc-ghost">设置</button>
           </div>
           <div id="moyuTimer" class="tc-moyu-timer" style="display:none;">
@@ -380,7 +381,8 @@
     document.addEventListener('wheel', recordUserActivity, { passive: true });
 
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && !moyuEnabled && localStorage.getItem(MOYU_AUTO_BG_KEY) === 'true') {
+      // 押后提交运行中时，后台自动摸鱼暂时失效
+      if (document.hidden && !moyuEnabled && localStorage.getItem(MOYU_AUTO_BG_KEY) === 'true' && !deferredEnabled) {
         sessionStorage.setItem(MOYU_AUTO_KEY, 'true'); startMoyu();
       }
     });
@@ -389,25 +391,40 @@
       clearInterval(idleTimer);
       idleTimer = setInterval(() => {
         const autoMoyuEnabled = localStorage.getItem(MOYU_AUTO_IDLE_KEY) === 'true';
-        if (!autoMoyuEnabled || moyuEnabled || document.hidden) return;
+        // 押后提交运行中或已在运行或页面隐藏 → 不触发
+        if (!autoMoyuEnabled || moyuEnabled || document.hidden || deferredEnabled) return;
         const idleSeconds = Math.floor((Date.now() - lastActivityTime) / 1000);
         if (idleSeconds >= IDLE_TIMEOUT) { sessionStorage.setItem(MOYU_AUTO_KEY, 'true'); startMoyu(); }
       }, 5000);
     }
 
-    // 摸鱼模拟点击：4步循环，3秒一轮
-    let moyuClickStep = 0, allComboboxInputs = [];
+    // 摸鱼模拟点击：4步循环
+    let moyuClickStep = 0;
 
     function simulateMoyuClick() {
       try {
-        // 只点击题目内容区域的 combobox（排除侧边栏等非题目区域）
-        const mainContent = document.querySelector('.mark-container') || document.querySelector('.task-content') || document.querySelector('main') || document.body;
-        const comboboxes = mainContent.querySelectorAll('[role="combobox"]');
-        allComboboxInputs = Array.from(comboboxes).map(cb => cb.querySelector('input, [role="textbox"], .arco-input-wrapper')).filter(Boolean);
+        if (!moyuEnabled) return;
+
+        // 只点击题目内容区域的级联选择器（排除侧边栏、标签面板、其他弹窗等）
+        const markArea = document.querySelector('.mark-container') ||
+                          document.querySelector('.task-content') ||
+                          document.querySelector('.arco-form') ||
+                          document.querySelector('main');
+        if (!markArea || !document.body.contains(markArea)) return;
+
+        const comboboxes = markArea.querySelectorAll(':scope > [role="combobox"], .arco-cascader > [role="combobox"]');
+        // 进一步过滤：排除已展开的弹窗中的 combobox（避免误触打开的菜单）
+        const validInputs = Array.from(comboboxes).filter(cb => {
+          // 排除在弹窗/浮层中的 combobox
+          const popup = cb.closest('.arco-popup-wrapper, .arco-cascader-popup, .tc-float-window, .tc-quick-menu');
+          if (popup && popup.style.display !== 'none') return false;
+          return true;
+        }).slice(0, 2).map(cb => cb.querySelector('input, [role="textbox"]')).filter(Boolean);
+
         switch (moyuClickStep % 4) {
-          case 0: if (allComboboxInputs[0]) allComboboxInputs[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); break;
+          case 0: if (validInputs[0] && document.body.contains(validInputs[0])) validInputs[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); break;
           case 1: document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); document.body.click(); break;
-          case 2: if (allComboboxInputs[1]) allComboboxInputs[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); break;
+          case 2: if (validInputs[1] && document.body.contains(validInputs[1])) validInputs[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); break;
           case 3: document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); document.body.click(); break;
         }
         moyuClickStep = (moyuClickStep + 1) % 4;
@@ -457,7 +474,7 @@
       const timer = document.getElementById("moyuTimer"), btn = document.getElementById("moyuBtn");
       if (moyuInterval) { clearInterval(moyuInterval); } moyuInterval = null;
       clearInterval(moyuActionInterval); moyuActionInterval = null;
-      moyuClickStep = 0; allComboboxInputs = [];
+      moyuClickStep = 0;
       // 关闭可能残留的下拉菜单
       try { AutoFiller.closeAllMenus(); } catch(e) {}
       timer.style.display = "none"; btn.textContent = "摸鱼"; btn.classList.remove("tc-moyu-active");
@@ -476,6 +493,293 @@
       startMoyu();
     }
     startIdleDetection();
+
+    // ================== 押后提交功能 ==================
+    const DEFERRED_KEY = 'tc_deferred_active';
+    const DEFERRED_INTERVAL_KEY = 'tc_deferred_interval';
+    let deferredEnabled = false, deferredInterval = null;
+    const DEFAULT_DEFERRED_INTERVAL = 160;
+    let deferredSubmittedCount = 0;
+    let deferredStartTime = null;
+    let deferredCountdownValue = DEFAULT_DEFERRED_INTERVAL;
+    let deferredCountdownTimer = null;
+
+    function isDeferredPage() {
+      // 双重判定：URL 含 /freeze-list/ 且页面有押后特征按钮
+      if (!window.location.href.includes('/freeze-list/')) return false;
+      // 检查是否有"连续领题"和"提交"按钮（弹窗中的）
+      const hasSubmit = Array.from(document.querySelectorAll('button')).some(b => b.textContent.trim() === '提交');
+      const hasContinuousPickup = Array.from(document.querySelectorAll('*')).some(el => el.textContent?.trim() === '连续领题');
+      return hasSubmit || hasContinuousPickup;
+    }
+
+    function isDeferredEmpty() {
+      return !Array.from(document.querySelectorAll('button')).some(b => b.textContent.trim() === '处理' && b.offsetParent !== null);
+    }
+
+    function clickSubmitInDialog() {
+      // 在弹窗中点击"提交"按钮（不是"干预提交"）— 使用完整鼠标事件模拟
+      const buttons = document.querySelectorAll('button');
+      for (const btn of buttons) {
+        const text = btn.textContent.trim();
+        if (text === '提交' && btn.offsetParent !== null) {
+          // 模拟完整的用户点击：mousedown → mouseup → click
+          btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+          btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+          btn.click();
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function openFirstDeferredItem() {
+      // 点击表格第一行的"处理"按钮打开弹窗 — 使用完整鼠标事件模拟
+      const processBtns = document.querySelectorAll('button');
+      for (const btn of processBtns) {
+        if (btn.textContent.trim() === '处理' && btn.offsetParent !== null) {
+          btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+          btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+          btn.click();
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function updateDeferredUI() {
+      const panel = document.getElementById('tc-deferred-panel');
+      if (!panel) return;
+      const statusEl = panel.querySelector('#deferredStatus');
+      const nextEl = panel.querySelector('#deferredNext');
+      if (!isDeferredPage()) {
+        if (statusEl) statusEl.textContent = '⚠️ 非押后题目处理页面';
+        return;
+      }
+      if (statusEl) statusEl.textContent = deferredEnabled ? '▶️ 运行中' : '⏸️ 已停止';
+      if (nextEl && deferredEnabled) nextEl.textContent = `${deferredCountdownValue}s 后提交`;
+    }
+
+    // 押后专用视频控制
+    function startMoyuForDeferred() {
+      // 只静音+循环播放视频，不做模拟点击
+      setupVideoMutedLoop();
+    }
+
+    function stopMoyuForDeferred() {
+      restoreVideoState();
+    }
+
+    // 右上角提示框
+    function createDeferredTimerUI() {
+      const timer = document.createElement("div");
+      timer.id = "deferredTimerPanel";
+      timer.className = "tc-moyu-timer tc-deferred-running";
+      timer.style.cssText = "display:none;";
+      timer.innerHTML = `
+        <div class="tc-moyu-header"><span class="tc-moyu-icon">📦</span><span id="deferredCountdownDisplay">${DEFAULT_DEFERRED_INTERVAL}</span>s 后提交</div>
+        <div class="tc-moyu-tip">已提交：<span id="deferredSubmittedDisplay">0</span> 题 | 已用：<span id="deferredTotalTime">0</span>分钟 | 视频已静音循环</div>
+      `;
+      document.body.appendChild(timer);
+
+      const summary = document.createElement("div");
+      summary.id = "deferredSummaryPanel";
+      summary.className = "tc-moyu-timer tc-deferred-complete";
+      summary.style.cssText = "display:none;";
+      summary.innerHTML = `
+        <div class="tc-moyu-header"><span class="tc-moyu-icon">🎉</span>押后完成！</div>
+        <div class="tc-moyu-tip" id="deferredSummaryText"></div>
+        <button id="deferredDismissBtn" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#fff;padding:4px 16px;border-radius:6px;font-size:12px;margin-top:4px;">关闭</button>
+      `;
+      document.body.appendChild(summary);
+
+      document.getElementById('deferredDismissBtn').onclick = () => { summary.style.display = 'none'; };
+    }
+
+    function updateDeferredTimerDisplay() {
+      const el = document.getElementById('deferredCountdownDisplay');
+      if (el) el.textContent = String(deferredCountdownValue);
+      const subEl = document.getElementById('deferredSubmittedDisplay');
+      if (subEl) subEl.textContent = String(deferredSubmittedCount);
+      const totalEl = document.getElementById('deferredTotalTime');
+      if (totalEl && deferredStartTime) {
+        totalEl.textContent = `${Math.floor((Date.now() - deferredStartTime) / 60000)}分钟`;
+      }
+    }
+
+    async function startDeferredSubmit() {
+      if (!isDeferredPage()) { showToast('请打开押后列表处理题目！', 'warn'); return false; }
+      
+      // 暂停当前窗口的摸鱼（不恢复）
+      if (moyuEnabled) stopMoyu();
+
+      deferredEnabled = true;
+      deferredSubmittedCount = 0;
+      deferredStartTime = Date.now();
+      deferredCountdownValue = parseInt(localStorage.getItem(DEFERRED_INTERVAL_KEY)) || DEFAULT_DEFERRED_INTERVAL;
+
+      const btn = document.getElementById('deferredSubmitBtn');
+      if (btn) { btn.textContent = '停止'; btn.classList.add('tc-moyu-active'); }
+      sessionStorage.setItem(DEFERRED_KEY, 'true');
+
+      if (!document.getElementById('deferredTimerPanel')) createDeferredTimerUI();
+      hideDeferredSummary(); showDeferredTimer(); updateDeferredTimerDisplay();
+      startMoyuForDeferred();
+
+      // 倒计时
+      clearInterval(deferredCountdownTimer);
+      // 倒计时显示（纯展示，不影响实际循环）
+      deferredCountdownTimer = setInterval(() => {
+        if (!deferredEnabled) { clearInterval(deferredCountdownTimer); deferredCountdownTimer = null; return; }
+        if (deferredCountdownValue > 1) {
+          deferredCountdownValue--;
+          updateDeferredTimerDisplay();
+        }
+      }, 1000);
+
+      // 主循环：async/await 替代 setInterval，确保每轮间隔精确同步
+      clearInterval(deferredInterval);
+      deferredInterval = null;
+      let firstRound = true; // 第一轮需要打开弹窗，后续弹窗自动切换下一题
+
+      (async function deferredLoop() {
+        while (deferredEnabled) {
+          if (!isDeferredPage()) { stopDeferredSubmit(); showToast('离开押后列表，已停止', 'warn'); return; }
+          if (isDeferredEmpty()) { stopDeferredSubmit(); return; }
+
+          const currentInterval = parseInt(localStorage.getItem(DEFERRED_INTERVAL_KEY)) || DEFAULT_DEFERRED_INTERVAL;
+          deferredCountdownValue = currentInterval;
+          updateDeferredTimerDisplay();
+
+          // 倒计时等待
+          for (let s = currentInterval; s > 0 && deferredEnabled; s--) {
+            await new Promise(r => setTimeout(r, 1000));
+            deferredCountdownValue = s - 1;
+            updateDeferredTimerDisplay();
+          }
+
+          if (!deferredEnabled) return;
+
+          // 执行提交
+          if (firstRound) {
+            // 第一轮：点击表格「处理」打开弹窗
+            openFirstDeferredItem();
+            await new Promise(r => setTimeout(r, 1200));
+            firstRound = false;
+          }
+          // 后续轮次：弹窗已自动加载下一题（提交后连续领题模式自动切换），直接点提交
+
+          clickSubmitInDialog();
+          deferredSubmittedCount++;
+          updateDeferredUI(); updateDeferredTimerDisplay();
+
+          // 等待提交完成 + 弹窗切换到下一题
+          await new Promise(r => setTimeout(r, 4000));
+        }
+      })();
+
+      updateDeferredUI();
+      showToast(`已开启押后提交，每 ${localStorage.getItem(DEFERRED_INTERVAL_KEY) || DEFAULT_DEFERRED_INTERVAL} 秒提交一题`, 'ok');
+      return true;
+    }
+
+    function showDeferredCompleteSummary() {
+      if (!document.getElementById('deferredTimerPanel')) createDeferredTimerUI();
+      hideDeferredTimer();
+      const s = document.getElementById('deferredSummaryPanel');
+      const elapsedMin = deferredStartTime ? ((Date.now() - deferredStartTime) / 60000).toFixed(1) : 0;
+      if (s) { s.style.display = 'flex'; s.querySelector('#deferredSummaryText').textContent = `✅ 押后提交完成！共 ${deferredSubmittedCount} 题，耗时 ${elapsedMin} 分钟`; }
+    }
+
+    function hideDeferredSummary() { const s = document.getElementById('deferredSummaryPanel'); if (s) s.style.display = 'none'; }
+    function showDeferredTimer() { const t = document.getElementById('deferredTimerPanel'); if (t) t.style.display = 'flex'; }
+    function hideDeferredTimer() { const t = document.getElementById('deferredTimerPanel'); if (t) t.style.display = 'none'; }
+
+    function stopDeferredSubmit() {
+      deferredEnabled = false;
+      clearInterval(deferredInterval); deferredInterval = null;
+      clearInterval(deferredCountdownTimer); deferredCountdownTimer = null;
+
+      const btn = document.getElementById('deferredSubmitBtn');
+      if (btn) { btn.textContent = '押后提交'; btn.classList.remove('tc-moyu-active'); }
+      // 同步面板内按钮状态
+      const toggleBtn = document.getElementById('deferredToggleBtn');
+      if (toggleBtn) { toggleBtn.textContent = '开始'; toggleBtn.style.background = '#22c55e'; }
+      sessionStorage.removeItem(DEFERRED_KEY);
+
+      stopMoyuForDeferred();
+
+      hideDeferredTimer(); updateDeferredUI();
+      if (deferredSubmittedCount > 0 || isDeferredEmpty()) showDeferredCompleteSummary();
+    }
+
+    // 创建押后提交浮动面板
+    function createDeferredPanel() {
+      const panel = document.createElement('div');
+      panel.id = 'tc-deferred-panel';
+      panel.className = 'tc-float-window tc-deferred-panel';
+      panel.style.cssText = '--block-bg: rgba(34,197,94,0.08); --block-border: #22c55e; --block-hover: rgba(34,197,94,0.3); right: 20px; bottom: 80px; width: 280px;';
+      panel.innerHTML = `
+        <div class="tc-float-header">
+          <span class="tc-float-title">📦 押后提交</span>
+          <button class="tc-float-close">−</button>
+        </div>
+        <div class="tc-float-body tc-deferred-body">
+          <div class="tc-deferred-row"><span>状态：</span><span id="deferredStatus">${isDeferredPage() ? '就绪' : '⚠️ 非押后题目处理页面'}</span></div>
+          <div class="tc-deferred-row"><span id="deferredNext"></span></div>
+          <div class="tc-deferred-row tc-deferred-interval-row">
+            <span>间隔(秒)</span>
+            <input id="deferredIntervalInput" type="number" min="3" value="${localStorage.getItem(DEFERRED_INTERVAL_KEY) || DEFAULT_DEFERRED_INTERVAL}" />
+            <span class="tc-deferred-interval-hint">点开始生效</span>
+          </div>
+          <div class="tc-deferred-actions">
+            <button id="deferredToggleBtn" class="tc-fill-tag" style="background:#22c55e;color:#fff;width:100%;">开始</button>
+          </div>
+        </div>`;
+      document.body.appendChild(panel);
+
+      // 关闭按钮
+      panel.querySelector('.tc-float-close').onclick = () => { panel.style.display = 'none'; };
+
+      // 开始/停止按钮 — 点击时自动保存间隔并启动/停止
+      panel.querySelector('#deferredToggleBtn').onclick = () => {
+        const tBtn = panel.querySelector('#deferredToggleBtn');
+        if (deferredEnabled) {
+          stopDeferredSubmit();
+          tBtn.textContent = '开始';
+          tBtn.style.background = '#22c55e';
+        }
+        else {
+          if (!isDeferredPage()) { showToast('请打开押后列表处理题目！', 'warn'); return; }
+          const val = parseInt(document.getElementById('deferredIntervalInput').value) || DEFAULT_DEFERRED_INTERVAL;
+          localStorage.setItem(DEFERRED_INTERVAL_KEY, String(val));
+          // 范围提示（不阻止）
+          if (val < 60) showToast(`间隔 ${val}s 偏短，可能触发风控`, 'warn');
+          else if (val > 180) showToast(`间隔 ${val}s 较长，提交效率低`, 'warn');
+
+          if (startDeferredSubmit()) {
+            tBtn.textContent = '停止';
+            tBtn.style.background = '#ef4444';
+          }
+        }
+      };
+    }
+
+    // 工具栏按钮
+    document.getElementById('deferredSubmitBtn').onclick = () => {
+      if (!isDeferredPage()) { showToast('请打开押后列表处理题目！', 'warn'); return; }
+      const panel = document.getElementById('tc-deferred-panel');
+      if (panel) { panel.style.display = panel.style.display === 'none' ? 'block' : 'none'; }
+      else { createDeferredPanel(); }
+      updateDeferredUI();
+    };
+
+    // 页面加载时恢复状态
+    if (sessionStorage.getItem(DEFERRED_KEY) === 'true' && isDeferredPage()) {
+      createDeferredPanel();
+      startDeferredSubmit();
+    }
+
     updateUI();
     renderQuickFillSection();
   }
@@ -648,6 +952,7 @@
 
   function detectSubmit() {
     document.addEventListener("click", (e) => {
+
       // 彻底排除插件自身所有元素（通过 tc- 前缀统一识别）
       let exclude = false, checkEl = e.target;
       while (checkEl && checkEl !== document.body) {
