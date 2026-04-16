@@ -753,13 +753,15 @@
           if (!isDeferredPage()) { showToast('请打开押后列表处理题目！', 'warn'); return; }
           const val = parseInt(document.getElementById('deferredIntervalInput').value) || DEFAULT_DEFERRED_INTERVAL;
           localStorage.setItem(DEFERRED_INTERVAL_KEY, String(val));
-          // 范围提示（不阻止）
-          if (val < 60) showToast(`间隔 ${val}s 偏短，可能触发风控`, 'warn');
-          else if (val > 180) showToast(`间隔 ${val}s 较长，提交效率低`, 'warn');
 
           if (startDeferredSubmit()) {
             tBtn.textContent = '停止';
             tBtn.style.background = '#ef4444';
+            // 范围提示延迟显示，避免被启动成功toast覆盖
+            setTimeout(() => {
+              if (val < 60) showToast(`⚠️ ${val}秒提交时间太短，可能导致单题处理时间过短！`, 'warn');
+              else if (val > 160) showToast(`⚠️ ${val}秒提交时间太长，可能导致人效不达标！`, 'warn');
+            }, 1500);
           }
         }
       };
